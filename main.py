@@ -144,7 +144,6 @@ def command_costs_stats(message):
         bot.send_message(message.chat.id, lines)
 
 
-bot.polling(none_stop=True)
 # RUN
 while True:
     try:
