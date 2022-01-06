@@ -2,10 +2,11 @@ import configparser
 import telebot
 
 from config import TOKEN, USER_CONFIG_PATH
+import src.new_handlers as nh
 import src.general_functions as gf
 import src.cyclic_functions as cf
 
-bot = cf.TeleBot(TOKEN)
+bot = nh.TeleBot(TOKEN)
 bot.cyclic_actions = []
 
 USER_CONFIG = configparser.ConfigParser()
