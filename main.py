@@ -1,11 +1,12 @@
-import telebot
 import configparser
+import telebot
 
 from config import TOKEN, USER_CONFIG_PATH
 import src.general_functions as gf
 import src.cyclic_functions as cf
 
-bot = telebot.TeleBot(TOKEN)
+bot = cf.TeleBot(TOKEN)
+bot.cyclic_actions = []
 
 USER_CONFIG = configparser.ConfigParser()
 SECTIONS = ['Diet', 'Costs', 'To-do', 'Settings']
