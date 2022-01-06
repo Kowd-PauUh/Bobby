@@ -8,7 +8,6 @@ from configparser import ConfigParser
 from config import USERS_WITH_ACCESS
 import src.general_functions as gf
 
-
 CYCLIC_ACTIONS = {  # 'action-name': [[last date], [last time]]
     'show_weekly_costs_stats': [[date.today()], [dt.now().strftime('%H:%M')]],
     'show_monthly_costs_stats': [[date.today()], [dt.now().strftime('%H:%M')]],
