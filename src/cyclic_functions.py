@@ -68,19 +68,19 @@ def planned_execution(period, description, last_usage):
                 if period == 'week':
                     day_of_week, daytime = datetime
                     day_of_week -= 1
-                    [last_day], [last_time] = last_usage
+                    [last_day], _ = last_usage
 
                     if date.today().weekday() == day_of_week and date.today() >= last_day:
-                        if time_check(daytime, last_time, last_usage):
+                        if time_check(daytime, last_usage):
                             f(description=description, **kwargs)
 
                 # monthly cycle
                 if period == 'month':
                     day_of_month, daytime = datetime
-                    [last_day], [last_time] = last_usage
+                    [last_day], _ = last_usage
 
                     if date.today().day == day_of_month and date.today() >= last_day:
-                        if time_check(daytime, last_time, last_usage):
+                        if time_check(daytime, last_usage):
                             f(description=description, **kwargs)
 
         return inner
@@ -88,7 +88,7 @@ def planned_execution(period, description, last_usage):
     return _planned_execution
 
 
-def time_check(daytime, last_time, last_usage):
+def time_check(daytime, last_usage):
     """
 
     Check last_time < daytime <= time_now
@@ -96,15 +96,20 @@ def time_check(daytime, last_time, last_usage):
 
     Args:
         daytime (str): time as 'HH:MM'.
-        last_time (str): time as 'HH:MM'.
         last_usage (list[list, list]): last usage of cyclic function. Read planned_execution().
 
     Returns:
         (bool): True if the inequality is true. False otherwise.
 
     """
+    [last_day], [last_time] = last_usage
 
-    if strptime(last_time, '%H:%M') < strptime(daytime, '%H:%M') <= \
+    if date.today() == last_day:
+        last_time = strptime(last_time, '%H:%M')
+    else:
+        last_time = strptime('00:00', '%H:%M')
+
+    if last_time < strptime(daytime, '%H:%M') <= \
             strptime(dt.now().strftime('%H:%M'), '%H:%M'):
         last_usage[0] = [date.today()]
         if strptime(daytime, '%H:%M') > strptime(dt.now().strftime('%H:%M'), '%H:%M'):
