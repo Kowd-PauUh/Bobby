@@ -26,19 +26,22 @@ def create_status_message(bot: TeleBot, message, status_message_id: list):
 
 
 def update_status_message(bot: TeleBot, status_message_id: list, previous_status: list):
-    if status_message_id[0] is False:
-        bot.send_message(STATUS_CHANNEL, 'Reply with a text to any of my messages to turn it into a status message.')
-        status_message_id[0] = True
-
     try:
-        if type(status_message_id[0]) is not bool:
-            new_status = datetime.now().strftime('%d.%m.%Y %H:%M(%S)')
-            if new_status != previous_status[0]:
-                bot.edit_message_text(new_status, STATUS_CHANNEL, status_message_id[0])
-                previous_status[0] = new_status
+        if status_message_id[0] is False:
+            bot.send_message(STATUS_CHANNEL, 'Reply with a text to any of my messages to turn it into a status message.')
+            status_message_id[0] = True
+
+        try:
+            if type(status_message_id[0]) is not bool:
+                new_status = datetime.now().strftime('%d.%m.%Y %H:%M(%S)')
+                if new_status != previous_status[0]:
+                    bot.edit_message_text(new_status, STATUS_CHANNEL, status_message_id[0])
+                    previous_status[0] = new_status
+        except ApiTelegramException:
+            bot.send_message(STATUS_CHANNEL, 'Reply with a text to any of my messages to turn it into a status message.')
+            status_message_id[0] = True
     except ApiTelegramException:
-        bot.send_message(STATUS_CHANNEL, 'Reply with a text to any of my messages to turn it into a status message.')
-        status_message_id[0] = True
+        pass  # it means that the status chat ID is not set or is incorrect
 
 
 def show_current_settings(bot: TeleBot, message):
