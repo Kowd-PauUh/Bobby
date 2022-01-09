@@ -1,6 +1,7 @@
 from os.path import dirname, realpath
 
 TOKEN = 'there should be a token here'  # bot token from @BotFather
+BOT_ID = False  # needed to update the status message. Enter anything (False for example) if you don't know what ID has your bot
 USERS_WITH_ACCESS = [] # IDs of users with access
 STATUS_CHANNEL = False # ID of status channel. Enter anything (False for example) if status channel doesn't exist
 
