@@ -1,7 +1,7 @@
 from datetime import datetime
 from telebot import TeleBot
 from telebot.apihelper import ApiTelegramException
-from config import USER_CONFIG_PATH, USERS_WITH_ACCESS, STATUS_CHANNEL, BOT_ID
+from config import USER_CONFIG_PATH, USERS_WITH_ACCESS, STATUS_CHANNEL
 import src.auxiliary_functions as af
 
 
@@ -21,8 +21,9 @@ def create_status_message(bot: TeleBot, message, status_message_id: list):
         status_message_id[0] = True
 
     if type(status_message_id[0]) is bool and message.reply_to_message:
-        if message.reply_to_message.from_user.id == BOT_ID:
+        if message.reply_to_message.from_user.id == bot.get_me().id:
             status_message_id[0] = message.reply_to_message.message_id
+            update_status_message(bot, status_message_id, ['DD.MM.YYYY hh:mm(ss)'])
 
 
 def update_status_message(bot: TeleBot, status_message_id: list, previous_status: list):
