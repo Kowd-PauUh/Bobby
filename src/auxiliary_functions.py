@@ -4,12 +4,16 @@ from time import strptime
 from copy import copy
 from PIL import Image
 from matplotlib import pyplot as plt
-from config import COSTS_HISTORY_PATH, BOT_PATH, USER_CONFIG_PATH
+from config import COSTS_HISTORY_PATH, BOT_PATH, USER_CONFIG_PATH, PASSWORDS
 from colour import Color
 from os import mkdir
 from os.path import exists
+from cryptography.fernet import Fernet
+from telebot import TeleBot
+from telebot.types import Message
 
 HEADERS = ['date', 'price', 'product']
+GUIDES = ['RU']
 
 PERIOD_PRESETS = [
     'all-time',
@@ -23,6 +27,44 @@ PERIOD_PRESETS = [
 ]
 
 
+def encrypt(filepath, password: str):
+    f = Fernet(password)
+    with open(filepath, 'r', encoding='utf-8') as file:
+        # прочитать все данные файла
+        file_data = file.read()
+
+    # зашифровать данные
+    encrypted_data = f.encrypt(file_data.encode('utf-8'))
+    # записать зашифрованный файл
+    with open(filepath, 'wb') as file:
+        file.write(encrypted_data)
+
+
+def decrypt(filepath, password):
+    f = Fernet(password)
+    with open(filepath, 'rb') as file:
+        # читать зашифрованные данные
+        encrypted_data = file.read()
+
+    # расшифровать данные
+    decrypted_data = f.decrypt(encrypted_data)
+    # записать оригинальный файл
+    with open(filepath, 'w', encoding='utf-8') as file:
+        file.write(decrypted_data.decode('utf-8'))
+
+
+def generate_password(bot: TeleBot, message: Message):
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+    if str(user_id) not in PASSWORDS:
+        password = Fernet.generate_key().decode('utf-8')
+        PASSWORDS[str(user_id)] = str(password)
+        bot.send_message(chat_id, 'Your password for the bot is')
+        bot.send_message(chat_id, password)
+        bot.send_message(chat_id, 'Save it and do not show it to anyone, '
+                                  'you will need it in case the bot is restarted.')
+
+
 def ensure_path(path):
     try:
         mkdir(path)
@@ -30,18 +72,42 @@ def ensure_path(path):
         pass
 
 
-def check_user_files(user_id):
-    ensure_path(BOT_PATH + '/data/{}'.format(user_id))
-    ensure_path(BOT_PATH + '/data/{}/costs'.format(user_id))
-    ensure_path(BOT_PATH + '/data/{}/diet'.format(user_id))
-    ensure_path(BOT_PATH + '/data/{}/todo'.format(user_id))
-    if not exists(USER_CONFIG_PATH.format(user_id)):
+def check_user_files(bot: TeleBot, message: Message):
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+
+    # если у юзера нет своей папки, создать все нужные папки и файлы и пароль для юзера
+    if not exists(BOT_PATH + '/data/{}'.format(user_id)):
+        generate_password(bot, message)  # создать пароль для юзера
+        if GUIDES:
+            bot.send_message(chat_id, 'If this is the first time you have met me, '
+                                      'you are encouraged to read one of this guides:')
+            for guide_version in GUIDES:
+                guide = open(BOT_PATH + f'/data/Guides/User guide [{guide_version}].pdf', 'rb')
+                bot.send_document(chat_id, guide)
+
+        ensure_path(BOT_PATH + '/data/{}'.format(user_id))
+        ensure_path(BOT_PATH + '/data/{}/costs'.format(user_id))
+        ensure_path(BOT_PATH + '/data/{}/diet'.format(user_id))
+        ensure_path(BOT_PATH + '/data/{}/todo'.format(user_id))
+
+        # создать файл конфигурационный файл с дефолтным содержанием
         default = open(BOT_PATH + '/data/Defaults/default_user_config.ini', 'r')
         default_settings = default.read()
         user_config = open(USER_CONFIG_PATH.format(user_id), 'w')
         user_config.write(default_settings)
         default.close()
         user_config.close()
+
+        # зашифровать конфигурационный файл
+        encrypt(USER_CONFIG_PATH.format(user_id), PASSWORDS[str(user_id)])
+
+        # создать реестр расходов costs_history.csv
+        costs_history = pd.DataFrame(columns=HEADERS)
+        costs_history.to_csv(COSTS_HISTORY_PATH.format(user_id), index=False)
+
+        # зашифровать реестр расходов
+        encrypt(COSTS_HISTORY_PATH.format(user_id), PASSWORDS[str(user_id)])
 
 
 def add_purchase(purchase: str, user_id):
