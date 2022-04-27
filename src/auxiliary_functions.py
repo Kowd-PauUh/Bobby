@@ -389,7 +389,6 @@ def generate_diet(user_id):
 
     print(products)
     print(grams_of_product)
-    # gg
     return diet
 
 
