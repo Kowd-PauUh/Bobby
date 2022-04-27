@@ -1,32 +1,28 @@
 import pandas as pd
+from configparser import ConfigParser
 from datetime import date, timedelta
 from time import strptime
 from copy import copy
 from PIL import Image
 from matplotlib import pyplot as plt
-from config import COSTS_HISTORY_PATH, BOT_PATH, USER_CONFIG_PATH, PASSWORDS
+from config import COSTS_HISTORY_PATH, BOT_PATH, PASSWORDS, DIET_CONFIG_PATH, PRODUCTS_DATABASE_PATH, \
+    USER_CONFIG_PATH, GUIDES_PATH
 from colour import Color
 from os import mkdir
 from os.path import exists
 from cryptography.fernet import Fernet
+from enchant.utils import levenshtein
+from data.Databases.messages import PHRASES, WORDS, SUPPORTED_LANGUAGES
+
 from telebot import TeleBot
-from telebot.types import Message
+from telebot.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 HEADERS = ['date', 'price', 'product']
-GUIDES = ['RU']
 
-PERIOD_PRESETS = [
-    'all-time',
-    'one-week',
-    'two-weeks',
-    'three-weeks',
-    'one-month',
-    'two-months',
-    'three-months',
-    'one-year'
-]
+# CPFC_PRESETS = {'weight-loss': {'calories': 2000, 'proteins': 90, 'fats': 60, 'carbohydrates': 250}}
 
 
+# SECURITY block
 def encrypt(filepath, password: str):
     f = Fernet(password)
     with open(filepath, 'r', encoding='utf-8') as file:
@@ -59,10 +55,10 @@ def generate_password(bot: TeleBot, message: Message):
     if str(user_id) not in PASSWORDS:
         password = Fernet.generate_key().decode('utf-8')
         PASSWORDS[str(user_id)] = str(password)
-        bot.send_message(chat_id, 'Your password for the bot is')
+        # print('lol')
+        bot.send_message(chat_id, get_phrase(user_id, 38))
         bot.send_message(chat_id, password)
-        bot.send_message(chat_id, 'Save it and do not show it to anyone, '
-                                  'you will need it in case the bot is restarted.')
+        bot.send_message(chat_id, get_phrase(user_id, 39))
 
 
 def ensure_path(path):
@@ -72,44 +68,7 @@ def ensure_path(path):
         pass
 
 
-def check_user_files(bot: TeleBot, message: Message):
-    user_id = message.from_user.id
-    chat_id = message.chat.id
-
-    # если у юзера нет своей папки, создать все нужные папки и файлы и пароль для юзера
-    if not exists(BOT_PATH + '/data/{}'.format(user_id)):
-        generate_password(bot, message)  # создать пароль для юзера
-        if GUIDES:
-            bot.send_message(chat_id, 'If this is the first time you have met me, '
-                                      'you are encouraged to read one of this guides:')
-            for guide_version in GUIDES:
-                guide = open(BOT_PATH + f'/data/Guides/User guide [{guide_version}].pdf', 'rb')
-                bot.send_document(chat_id, guide)
-
-        ensure_path(BOT_PATH + '/data/{}'.format(user_id))
-        ensure_path(BOT_PATH + '/data/{}/costs'.format(user_id))
-        ensure_path(BOT_PATH + '/data/{}/diet'.format(user_id))
-        ensure_path(BOT_PATH + '/data/{}/todo'.format(user_id))
-
-        # создать файл конфигурационный файл с дефолтным содержанием
-        default = open(BOT_PATH + '/data/Defaults/default_user_config.ini', 'r')
-        default_settings = default.read()
-        user_config = open(USER_CONFIG_PATH.format(user_id), 'w')
-        user_config.write(default_settings)
-        default.close()
-        user_config.close()
-
-        # зашифровать конфигурационный файл
-        encrypt(USER_CONFIG_PATH.format(user_id), PASSWORDS[str(user_id)])
-
-        # создать реестр расходов costs_history.csv
-        costs_history = pd.DataFrame(columns=HEADERS)
-        costs_history.to_csv(COSTS_HISTORY_PATH.format(user_id), index=False)
-
-        # зашифровать реестр расходов
-        encrypt(COSTS_HISTORY_PATH.format(user_id), PASSWORDS[str(user_id)])
-
-
+# COSTS block
 def add_purchase(purchase: str, user_id):
     """ Updates costs history.
     Args:
@@ -175,14 +134,16 @@ def split_purchase(purchase: str):
     return [timestamp, price, product]
 
 
-def stats_from_costs_in_the_period(entries_file_path, period='all-time', pieces=10, head=10):
+def stats_from_costs_in_the_period(entries_file_path, user_id, period='all-time', pieces=10, head=10):
     """
     Args:
         entries_file_path: datafile path
+        user_id (int): user ID
         period (str|list[str, str]): [start time; end time], each time is 'DD.MM.YYYY'.
         pieces (int): the number of pie plot pieces.
         head (int): the number of things that cost the most
     """
+
     def percentage(number1, number2, precision=1):
         """ Returns how many percent of number1 is number2.
         The precision parameter specifies the maximum number of digits after the decimal point. """
@@ -216,8 +177,8 @@ def stats_from_costs_in_the_period(entries_file_path, period='all-time', pieces=
         colors[i].set_luminance(0.75)
     colors = [color.get_hex_l() for color in colors]
 
-    plt.pie(prices[:pieces] + [sum(prices[pieces:])], labels=products[:pieces] + ['Другое'], colors=colors,
-            autopct='%1.1f%%', pctdistance=0.85, startangle=90,
+    plt.pie(prices[:pieces] + [sum(prices[pieces:])], labels=products[:pieces] + [get_word(user_id, 'Other')],
+            colors=colors, autopct='%1.1f%%', pctdistance=0.85, startangle=90,
             wedgeprops={"edgecolor": "k", 'linewidth': 1, 'linestyle': 'solid', 'antialiased': True})
     centre_circle = plt.Circle((0, 0), 0.70, fc='white', ec='black', linestyle='solid')
     fig = plt.gcf()
@@ -322,19 +283,324 @@ def entries_in_the_period(entries_file_path, period='all-time'):
         return entries[min_index:max_index + 1]
 
 
-def clear_history(entries_file_path):
-    """ Clear all entries in file.
-    Args:
-        entries_file_path (str): datafile path.
+# DIET block
+def new_products_handler(bot: TeleBot, message: Message, products_type):
+    assert products_type in ['allowed', 'each-meal'], ValueError(f'Wrong products type: "{str(products_type)}"')
+    user_id = message.from_user.id
+
+    cpfc = pd.read_csv(PRODUCTS_DATABASE_PATH)
+    products = list(cpfc['product'])
+    new_products = message.text.split('\n')
+    failures = []
+
+    def _levenshtein(products_database, product):
+        similar = []
+        leven_distances = [(products_database[i], min([levenshtein(product.lower(), word)
+                                                       for word in products_database[i].lower().split()]))
+                           for i in range(len(products_database))]
+        leven_distances.sort(key=lambda x: x[1])
+
+        similar.append((product, '\n- '.join([product for product, distance in leven_distances[:3]])))
+        return similar
+
+    if products_type == 'allowed':
+        for new_product in new_products:
+            if new_product in products:
+                add_product(user_id, new_product, products_type)
+            else:
+                failures += _levenshtein(products, new_product)
+
+    if products_type == 'each-meal':
+        new_products = [(' '.join(product_grams.split()[:-1]), product_grams.split()[-1])
+                        for product_grams in new_products]
+        for new_product, grams in new_products:
+            if new_product in products:
+                add_product(user_id, ' '.join([new_product, grams]), products_type)
+
+            else:
+                failures += _levenshtein(products, new_product)
+
+    keyboard = inline_keyboard([get_phrase(user_id, 33).format(get_word(user_id, products_type))],
+                               callback_data=[f'Show {products_type} products'])
+    if failures:
+        failures = get_phrase(user_id, 36) + '\n\n'.join([get_phrase(user_id, 35) + f' "{product}":\n- ' +
+                                                          similars for product, similars in failures])
+        bot.send_message(user_id, failures, reply_markup=keyboard)
+    else:
+        bot.send_message(user_id, get_phrase(user_id, 37), reply_markup=keyboard)
+
+
+def add_product(user_id, new_product, products_type):
+    assert products_type in ['allowed', 'each-meal'], ValueError(f'Wrong products type: "{str(products_type)}"')
+
+    config, _ = read_config(DIET_CONFIG_PATH, user_id)
+    if products_type == 'allowed':
+        products = config['Diet']['products'] + ',' + new_product
+        update_config(DIET_CONFIG_PATH, user_id, 'Diet products ' + products)
+    elif products_type == 'each-meal':
+        products = config['Diet']['each_meal_products'] + ',' + new_product
+        update_config(DIET_CONFIG_PATH, user_id, 'Diet each_meal_products ' + products)
+
+
+def generate_diet(user_id):
+    # получаем все продукты из конфигурационного файла, наименования которых присутсвуют в базе данных КБЖУ продуктов
+    config, _ = read_config(DIET_CONFIG_PATH, user_id)
+    cpfc = pd.read_csv(PRODUCTS_DATABASE_PATH)
+
+    products = [product for product in config['Diet']['products'].split(',')
+                if product in list(cpfc['product'])]
+    if not products:
+        return
+    each_meal = []  # продукты которые обязательно должны быть включены в рацион и их грамовки
+    for product_grams in config['Diet']['each_meal_products'].split(','):
+        if product_grams != '':
+            product = ' '.join(product_grams.split()[:-1])
+            grams = int(product_grams.split()[-1])
+            if product in list(cpfc['product']):
+                each_meal.append((product, grams))
+                if product not in products:
+                    products.append(product)
+
+    days = int(config['Diet']['days'])  # кол-во дней для которых генерится рацион
+    meals = int(config['Diet']['meals'])  # кол-во приемов пищи в день
+
+    min_of_calories = value2int(config['Advanced']['calories'])
+    min_of_proteins = value2int(config['Advanced']['proteins'])
+    min_of_fats = value2int(config['Advanced']['fats'])
+    min_of_carbs = value2int(config['Advanced']['carbohydrates'])
+
+    # словарь содержит дни, содержащие приемы пищи, которые в свою очередь содержат наименования блюд
+    diet = {i: {j: {} for j in range(1, meals + 1)} for i in range(1, days + 1)}
+    grams_of_product = {product: 0 for product in products}  # дневные граммовки каждого из продуктов
+
+    calories = 0  # килокалории
+    proteins = 0  # белки
+    fats = 0  # жиры
+    carbohydrates = 0  # углеводы
+
+    for product, grams in each_meal:
+        # рацион будет составляться отталкиваясь от того какие продукты ообязательно должны присутствовать
+        info = cpfc[cpfc['product'] == product]
+        calories += int(info['calories'])
+        proteins += int(info['proteins'])
+        fats += int(info['fats'])
+        carbohydrates += int(info['carbohydrates'])
+        grams_of_product[product] += grams
+
+    print(products)
+    print(grams_of_product)
+    return diet
+
+
+# CONFIGS block
+def read_config(config_path: str, user_id):
+    """ Return config as ConfigParser obj. and content as string (content of the config). """
+    config = ConfigParser()
+
+    decrypt(config_path.format(user_id), PASSWORDS[str(user_id)])
+    try:
+        file = open(config_path.format(user_id), 'r', encoding='utf-8')
+        content = file.read()
+        file.close()
+        config.read(config_path.format(user_id), encoding='utf-8')
+    except Exception as e:
+        encrypt(config_path.format(user_id), PASSWORDS[str(user_id)])
+        raise e
+    encrypt(config_path.format(user_id), PASSWORDS[str(user_id)])
+
+    return config, content
+
+
+def update_config(config_path: str, user_id, commands: str):
+    config = ConfigParser()
+
+    decrypt(config_path.format(user_id), PASSWORDS[str(user_id)])
+    try:
+        text = commands.split('\n')
+        failures = []
+        for line in text:
+            if len(line.split(' ')) < 3:
+                failures.append(line)
+                continue
+
+            config.read(config_path.format(user_id), encoding='utf-8')
+            section, variable = line.split(' ')[:2]
+            value = ' '.join(line.split(' ')[2:])
+            if ' ' in section or ' ' in variable or section not in config.sections():
+                failures.append(line)
+                continue
+
+            config[section][variable] = value
+            with open(config_path.format(user_id), 'w', encoding='utf-8') as configfile:
+                config.write(configfile)
+    except Exception as e:
+        encrypt(config_path.format(user_id), PASSWORDS[str(user_id)])
+        raise e
+    encrypt(config_path.format(user_id), PASSWORDS[str(user_id)])
+
+    return failures
+
+
+def load_default_config(config_path: str, user_id):
+    default_config_path = config_path.split('/')
+    default_config_path = BOT_PATH + '/data/Defaults/default_' + default_config_path[-1]
+
+    default = open(default_config_path, 'r', encoding='utf-8')
+    default_settings = default.read()
+    default.close()
+    user_config = open(config_path.format(user_id), 'w', encoding='utf-8')
+    user_config.write(default_settings)
+    user_config.close()
+    encrypt(config_path.format(user_id), PASSWORDS[str(user_id)])
+
+
+# LANGUAGE block
+def get_phrase(user_id, message_id):
+    language = define_language(user_id)
+    return PHRASES[language][message_id]
+
+
+def get_word(user_id, word):
+    language = define_language(user_id)
+    return WORDS[word][language]
+
+
+def define_language(user_id):
+    if str(user_id) in PASSWORDS.keys() and exists(USER_CONFIG_PATH.format(user_id)):
+        config, _ = read_config(USER_CONFIG_PATH, user_id)
+        language = config['General']['language']
+        if language not in SUPPORTED_LANGUAGES:
+            language = 'EN'
+    else:
+        language = 'EN'
+
+    return language
+
+
+def check_for_keywords(bot: TeleBot, user_id, text):
+    check_language(bot, user_id)
+
+    config, _ = read_config(USER_CONFIG_PATH, user_id)
+    language = config['General']['language']
+    for keyword in WORDS.keys():
+        if text == WORDS[keyword][language]:
+            return keyword
+
+
+def check_language(bot: TeleBot, user_id):
+    config, _ = read_config(USER_CONFIG_PATH, user_id)
+    language = config['General']['language']
+    if language not in SUPPORTED_LANGUAGES:
+        keyboard = inline_keyboard(['Change language'], callback_data=['Set language'])
+        bot.send_message(user_id, 'A language that is not supported is set in the settings. Please, change language.',
+                         reply_markup=keyboard)
+        raise ValueError('Wrong language')
+
+
+# GUIDES block
+def send_user_guide(bot: TeleBot, user_id, section=None):
+    guides = check_for_guides(['Full', 'Settings', 'Costs', 'Diet', 'To-do'])
+    # each guide name is "User guide [type] [language].pdf"
+    language = define_language(user_id)
+
+    def _send_full_guide():
+        if guides['Full'][language]:
+            bot.send_document(user_id, open(GUIDES_PATH + f'/User guide [Full] [{language}].pdf', 'rb'))
+        elif guides['Full']['EN']:
+            bot.send_document(user_id, open(GUIDES_PATH + '/User guide [Full] [EN].pdf', 'rb'))
+        else:
+            for lang in guides['Full'].keys():
+                if guides['Full'][lang]:
+                    bot.send_document(user_id, open(GUIDES_PATH + f'/User guide [Full] [{lang}].pdf', 'rb'))
+
+    def _get_guide_name(guide_type):
+        if True not in guides[guide_type].values():
+            return []
+        if guides[guide_type][language]:
+            return [f'/User guide [{guide_type}] [{language}].pdf']
+        elif guides[guide_type]['EN']:
+            return [f'/User guide [{guide_type}] [EN].pdf']
+        else:
+            names = []
+            for lang in guides[guide_type].keys():
+                if guides[guide_type][lang]:
+                    names.append(f'/User guide [{guide_type}] [{lang}].pdf')
+
+    if section is None:
+        bot.send_message(user_id, get_phrase(user_id, 7))
+        _send_full_guide()
+    elif section in ['Settings', 'Costs', 'Diet', 'To-do']:
+        if _get_guide_name(section):
+            for guide in _get_guide_name(section):
+                bot.send_message(user_id, get_phrase(user_id, 8))
+
+                guide = open(GUIDES_PATH + guide, 'rb')
+                bot.send_document(user_id, guide)
+            keyboard = inline_keyboard([get_phrase(user_id, 46)], callback_data=['Send full user guides'])
+            bot.send_message(user_id, get_phrase(user_id, 9),
+                             reply_markup=keyboard)
+
+        else:
+            bot.send_message(user_id, get_phrase(user_id, 10))
+            _send_full_guide()
+
+
+def check_for_guides(guide_types: list):
+    report = {guide_type: {} for guide_type in guide_types}
+    for guide_type in guide_types:
+        for language in SUPPORTED_LANGUAGES:
+            if exists(GUIDES_PATH + f'/User guide [{guide_type}] [{language}].pdf'):
+                report[guide_type][language] = True
+            else:
+                report[guide_type][language] = False
+
+    return report
+
+
+# OTHER block
+def inline_keyboard(text, rows_lengths=None, **kwargs):
+    """ Создает инлайновую клавиатуру с кнопками. Можно выбрать кол-во кнопок в каждой из строк,
+    а также присваивать кнопкам любые атрибуты, передавая соответствующий список в параметр kwargs.
+
+    Пример:
+    keyboard_maker(['General', 'Costs', 'Diet', 'To-do'], rows_lengths=[1, 2, 1],
+                   callback_data=['General', 'Costs', 'Diet', 'To-do'])
+
+    создаст инлайновую клавиатуру в первой строке которой будет кнопка General, во второй Costs и Diet,
+    а в третьей To-do. Каждая из кнопок будет иметь одноименное значение параметра callback_data.
+
     """
 
-    try:
-        entries = pd.read_csv(entries_file_path)
-    except FileNotFoundError:
-        return
+    for kwarg in kwargs.values():
+        assert len(kwarg) == len(text), ValueError('All arrays must have the same length.')
 
-    entries = pd.DataFrame(columns=entries.columns)
-    entries.to_csv(entries_file_path, index=False)
+    buttons = []
+    keyboard = InlineKeyboardMarkup()
+    for i in range(len(text)):
+        button = InlineKeyboardButton(text[i])
+        for key in kwargs.keys():
+            button.__setattr__(key, kwargs[key][i])
+        buttons.append(button)
+
+    if isinstance(rows_lengths, int):
+        assert rows_lengths > 0, ValueError('Parameter rows_lengths must be greater than 0.')
+        for i in range(0, len(buttons), rows_lengths):
+            row = tuple(buttons[i:i + rows_lengths])
+            keyboard.add(*row, row_width=rows_lengths)
+    elif isinstance(rows_lengths, list) or isinstance(rows_lengths, tuple):
+        i, j = 0, 0
+        while i < len(buttons):
+            rows_length = rows_lengths[j]
+            row = tuple(buttons[i:i + rows_length])
+            keyboard.add(*row, row_width=rows_length)
+
+            i += rows_length
+            j += 1
+    else:
+        buttons = tuple(buttons)
+        keyboard.add(*buttons)
+
+    return keyboard
 
 
 def fig2img(fig, dpi=500):
@@ -365,3 +631,15 @@ def strpdate(string: str, formatting: str):
     """ strpdate(str_date, formatting) -> date """
     time_from_str = strptime(string, formatting)
     return date(time_from_str.tm_year, time_from_str.tm_mon, time_from_str.tm_mday)
+
+
+def value2int(value):
+    """ value --> float --> int """
+    try:
+        return int(float(value))
+    except ValueError:
+        return None
+
+
+if __name__ == '__main__':
+    print(generate_diet(758913011))

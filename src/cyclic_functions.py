@@ -33,7 +33,7 @@ def planned_execution(period, description):
 
         @wraps(f)
         def inner(**kwargs):
-            user_config = kwargs['user_config']
+            user_config = ConfigParser()
             config_path = kwargs['config_path']
             user_id = kwargs['user_id']
 
@@ -128,41 +128,23 @@ def time_check(daytime, last_usage: str, user_id, user_config, description, conf
 
 
 @planned_execution(period='week', description='weekly_action')
-def show_weekly_costs_stats(bot: TeleBot, user_config: ConfigParser, config_path: str, description: str, user_id):
+def show_weekly_costs_stats(bot: TeleBot, config_path: str, description: str, user_id):
     """ In each function call all parameters should be entered as kwargs. """
     _ = config_path, description
-    bot.send_message(user_id, 'Weekly stats!')
-    message = PseudoMessage()
-    message.add_id(user_id)
-    gf.show_costs_stats(bot, message, 'weekly_stats', user_config)
+    bot.send_message(user_id, af.get_phrase(user_id, 40))
+    gf.show_costs_stats(bot, user_id, 'weekly_stats')
 
 
 @planned_execution(period='month', description='monthly_action')
-def show_monthly_costs_stats(bot: TeleBot, user_config: ConfigParser, config_path: str, description: str, user_id):
+def show_monthly_costs_stats(bot: TeleBot, config_path: str, description: str, user_id):
     """ In each function call all parameters should be entered as kwargs. """
     _ = config_path, description
-    bot.send_message(user_id, 'Monthly stats!')
-    message = PseudoMessage()
-    message.add_id(user_id)
-    gf.show_costs_stats(bot, message, 'monthly_stats', user_config)
+    bot.send_message(user_id, af.get_phrase(user_id, 41))
+    gf.show_costs_stats(bot, user_id, 'monthly_stats')
 
 
 @planned_execution(period='week', description='weekly_reminder_action')
-def send_good_morning(bot: TeleBot, user_config: ConfigParser, config_path: str, description: str, user_id):
+def send_good_morning(bot: TeleBot, config_path: str, description: str, user_id):
     """ In each function call all parameters should be entered as kwargs. """
-    _ = user_config, config_path, description
-    bot.send_message(user_id, 'Good morning!')
-
-
-class PseudoMessage:
-    def __init__(self):
-        self.from_user = Container()
-        self.chat = Container()
-
-    def add_id(self, user_id):
-        self.from_user.id = user_id
-        self.chat.id = user_id
-
-
-class Container:
-    pass
+    _ = config_path, description
+    bot.send_message(user_id, af.get_phrase(user_id, 42))
