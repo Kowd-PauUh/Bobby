@@ -24,3 +24,8 @@ general_config.ini
 config.py
 config.py
 general_config.ini
+src/__pycache__/auxiliary_functions.cpython-39.pyc
+src/__pycache__/cyclic_functions.cpython-39.pyc
+src/__pycache__/general_functions.cpython-39.pyc
+src/__pycache__/new_handlers.cpython-39.pyc
+config.py
