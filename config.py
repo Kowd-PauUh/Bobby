@@ -1,10 +1,10 @@
 from os.path import dirname, realpath
 
-TOKEN = 'there should be a token here'  # bot token from @BotFather
+TOKEN = '5063051229:AAGqfNAOll-gEQ56VIoBRuZA9vnZV5ETgA0'  # bot token from @BotFather
 
 BOT_PATH = dirname(realpath(__file__)).replace('\\', '/')  # .../Bobby
-PASSWORDS = {}
-STATUS_CHANNEL = False # ID of status channel. Enter anything (False for example) if status channel doesn't exist
+PASSWORDS = {'758913011': 'OjS29XWqUnAWay81bmCv1GG3MOgyFvOkif8wozYe9mI='}
+STATUS_CHANNEL = -740175445
 SECTIONS = ['Diet', 'Costs', 'To-do', 'Settings']
 
 GENERAL_CONFIG_PATH = BOT_PATH + '/general_config.ini'
